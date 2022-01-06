@@ -23,8 +23,10 @@ std::complex<double>* discretTransformFourier( std::uint32_t width, std::uint32_
     std::uint32_t nj = width;
     std::complex<double>* X = new std::complex<double>[ni*nj];
     std::fill(X, X+ni*nj, std::complex<double>(0.,0.));
+    
     for( std::uint32_t k1 = 0; k1 < ni; ++k1 )
     {
+        #pragma omp parallel for 
         for (std::uint32_t k2 = 0; k2 < nj; ++k2)
         {
             for (std::uint32_t n2 = 0; n2 < ni; ++n2 )
@@ -133,8 +135,10 @@ unsigned char* inversePartialDiscretTransformFourier( sparseSpectralComposition 
     std::uint32_t ni = sparse.ni;
     std::uint32_t nj = sparse.nj;
     std::fill(x, x+3*ni*nj, 0);
+    
     for (std::uint32_t n1 = 0; n1 < nj; ++n1 )
     {
+        #pragma omp parallel for
         for (std::uint32_t n2 = 0; n2 < ni; ++n2 )
         {
             std::complex<double> val(0.);

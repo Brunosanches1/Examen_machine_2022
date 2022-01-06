@@ -7,6 +7,8 @@
 #include <algorithm>
 #include <chrono>
 #include "lodepng/lodepng.h"
+#include <mpi.h>
+#include <fstream>
 
 struct sparseSpectralComposition 
 {
@@ -24,9 +26,16 @@ std::complex<double>* discretTransformFourier( std::uint32_t width, std::uint32_
     std::complex<double>* X = new std::complex<double>[ni*nj];
     std::fill(X, X+ni*nj, std::complex<double>(0.,0.));
     
-    for( std::uint32_t k1 = 0; k1 < ni; ++k1 )
+    int rank, nbp;
+    MPI_Comm_rank( MPI_COMM_WORLD , &rank);
+    MPI_Comm_size( MPI_COMM_WORLD , &nbp);
+    auto size_batch = ni/nbp;
+    auto begin_row = (rank)*size_batch;
+    auto end_row = (rank+1)*size_batch;
+
+    for( std::uint32_t k1 = begin_row; k1 < end_row; ++k1 )
     {
-        #pragma omp parallel for 
+        #pragma omp parallel for
         for (std::uint32_t k2 = 0; k2 < nj; ++k2)
         {
             for (std::uint32_t n2 = 0; n2 < ni; ++n2 )
@@ -40,6 +49,11 @@ std::complex<double>* discretTransformFourier( std::uint32_t width, std::uint32_
             }
         }
     }
+
+    MPI_Gather( &X[begin_row*nj] , size_batch*nj , MPI_DOUBLE_COMPLEX , 
+                &X[0] , size_batch*nj , MPI_DOUBLE_COMPLEX , 
+                0 , MPI_COMM_WORLD);
+    //MPI_Allgather( &X[begin_row*height] , size_batch , MPI_DOUBLE , X , size_batch , MPI_DOUBLE , MPI_COMM_WORLD);
     return X;
 }
 
@@ -160,6 +174,10 @@ unsigned char* inversePartialDiscretTransformFourier( sparseSpectralComposition 
 
 int main(int nargs, char* argv[])
 {
+    MPI_Init(&nargs, &argv);
+    int rank;
+    MPI_Comm_rank( MPI_COMM_WORLD , &rank);
+
     std::chrono::time_point<std::chrono::system_clock> start, end;
 
     std::uint32_t width, height;
@@ -177,33 +195,41 @@ int main(int nargs, char* argv[])
     double taux = 0.10; // A changer si on veut pour une image mieux compressée ou de meilleur qualité
     if (nargs > 2)
         taux = std::stod(argv[2]);
-    std::cout << "Caracteristique de l'image : " << width << "x" << height << " => " << width*height << " pixels." << std::endl << std::flush;
+     if(rank == 0)
+        std::cout << "Caracteristique de l'image : " << width << "x" << height << " => " << width*height << " pixels." << std::endl << std::flush;
 
     start = std::chrono::system_clock::now();
     std::complex<double>* fourier = discretTransformFourier( width, height, image );
     end = std::chrono::system_clock::now();
-    std::cout << "Temps DFT: " << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() 
-              << "[ms]" << std::endl;
+    if (rank == 0)
+        std::cout << "Temps DFT: " << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() 
+                  << "[ms]" << std::endl;
 
     start = std::chrono::system_clock::now();
     auto sparse = compressSpectralComposition(width, height, fourier, taux);
     end = std::chrono::system_clock::now();
-    std::cout << "Temps Selection: " << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() 
-              << "[ms]" << std::endl;
+    if (rank == 0)
+        std::cout << "Temps Selection: " << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() 
+                << "[ms]" << std::endl;
 
-    start = std::chrono::system_clock::now();
-    unsigned char* compressed_img = inversePartialDiscretTransformFourier(sparse);
-    end = std::chrono::system_clock::now();
-    std::cout << "Temps reconstituition: " << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() 
-              << "[ms]" << std::endl;
+    if (rank == 0) {
+        start = std::chrono::system_clock::now();
+        unsigned char* compressed_img = inversePartialDiscretTransformFourier(sparse);
+        end = std::chrono::system_clock::now();
+        if (rank == 0)
+            std::cout << "Temps reconstituition: " << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() 
+                    << "[ms]" << std::endl;
 
-    auto error = lodepng_encode24_file("compress.png", compressed_img, width, height);
-    if(error) std::cerr << "decoder error " << error << ": " << lodepng_error_text(error) << std::endl;
+        auto error = lodepng_encode24_file("compress.png", compressed_img, width, height);
+        if(error) std::cerr << "decoder error " << error << ": " << lodepng_error_text(error) << std::endl;
 
-    std::cout << "Fin du programme..." << std::endl << std::flush;
-    delete [] compressed_img;
+        std::cout << "Fin du programme..." << std::endl << std::flush;
+        delete [] compressed_img;
+    }
+    
     delete [] fourier;
     delete [] image;
 
+    MPI_Finalize();
     return EXIT_SUCCESS;
 }

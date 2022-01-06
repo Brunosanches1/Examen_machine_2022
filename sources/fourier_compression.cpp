@@ -175,9 +175,23 @@ int main(int nargs, char* argv[])
         taux = std::stod(argv[2]);
     std::cout << "Caracteristique de l'image : " << width << "x" << height << " => " << width*height << " pixels." << std::endl << std::flush;
 
+    start = std::chrono::system_clock::now();
     std::complex<double>* fourier = discretTransformFourier( width, height, image );
+    end = std::chrono::system_clock::now();
+    std::cout << "Temps DFT: " << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() 
+              << "[ms]" << std::endl;
+
+    start = std::chrono::system_clock::now();
     auto sparse = compressSpectralComposition(width, height, fourier, taux);
+    end = std::chrono::system_clock::now();
+    std::cout << "Temps Selection: " << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() 
+              << "[ms]" << std::endl;
+
+    start = std::chrono::system_clock::now();
     unsigned char* compressed_img = inversePartialDiscretTransformFourier(sparse);
+    end = std::chrono::system_clock::now();
+    std::cout << "Temps reconstituition: " << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() 
+              << "[ms]" << std::endl;
 
     auto error = lodepng_encode24_file("compress.png", compressed_img, width, height);
     if(error) std::cerr << "decoder error " << error << ": " << lodepng_error_text(error) << std::endl;
